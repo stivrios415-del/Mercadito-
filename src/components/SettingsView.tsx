@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ImagePlus, LockKeyhole, Palette, Store, Trash2, Users } from 'lucide-react'
 import type { Cashier, Tenant } from '../types'
+import { CURRENCIES } from '../lib/currencies'
 import { optimizeImage } from '../lib/image'
 import { BrandLogo } from './Ui'
 import CashiersView, { type CashierInput } from './CashiersView'
@@ -90,7 +91,7 @@ export default function SettingsView({
               <div className="field">
                 <label htmlFor="settings-currency">Moneda</label>
                 <select id="settings-currency" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {['USD', 'EUR', 'ARS', 'BOB', 'CLP', 'COP', 'MXN', 'PEN', 'UYU'].map((code) => <option key={code}>{code}</option>)}
+                  {CURRENCIES.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}
                 </select>
               </div>
               <div className="field">

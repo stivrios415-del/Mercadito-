@@ -259,6 +259,22 @@ alter table public.products         enable row level security;
 alter table public.invoices         enable row level security;
 alter table public.invoice_counters enable row level security;
 
+-- Borra TODAS las políticas anteriores de estas tablas. Si en una ejecución
+-- vieja quedó una política "for all" con using(current_tenant_ids()), el INSERT
+-- de un negocio nuevo falla con 403: todavía no existe membresía que la permita.
+do $$
+declare p record;
+begin
+  for p in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in ('tenants', 'tenant_members', 'products', 'invoices', 'invoice_counters')
+  loop
+    execute format('drop policy %I on %I.%I', p.policyname, p.schemaname, p.tablename);
+  end loop;
+end $$;
+
 drop policy if exists tenants_select on public.tenants;
 create policy tenants_select on public.tenants
   for select to authenticated

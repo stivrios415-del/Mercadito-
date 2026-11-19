@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowRight, ShoppingBasket, Sparkles, Store } from 'lucide-react'
 import type { Tenant } from '../types'
+import { CURRENCIES } from '../lib/currencies'
 import { BrandLogo } from './Ui'
 
 export interface NewTenantInput {
@@ -16,11 +17,14 @@ export default function Onboarding({
   tenants,
   onCreate,
   onOpen,
+  onError,
 }: {
   tenants: Tenant[]
-  onCreate: (input: NewTenantInput) => void
+  onCreate: (input: NewTenantInput) => Promise<void>
   onOpen: (tenant: Tenant) => void
+  onError: (message: string) => void
 }) {
+  const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('USD')
   const [taxRate, setTaxRate] = useState('0')
@@ -28,10 +32,17 @@ export default function Onboarding({
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!name.trim()) return
-    onCreate({ name: name.trim(), currency, taxRate: Number(taxRate) || 0, ruc, phone, address })
+    if (!name.trim() || busy) return
+    setBusy(true)
+    try {
+      await onCreate({ name: name.trim(), currency, taxRate: Number(taxRate) || 0, ruc, phone, address })
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No se pudo crear el negocio')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -75,7 +86,7 @@ export default function Onboarding({
               <div className="field">
                 <label htmlFor="tenant-currency">Moneda</label>
                 <select id="tenant-currency" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {['USD', 'EUR', 'ARS', 'BOB', 'CLP', 'COP', 'MXN', 'PEN', 'UYU'].map((code) => <option key={code}>{code}</option>)}
+                  {CURRENCIES.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}
                 </select>
               </div>
               <div className="field">
@@ -95,11 +106,25 @@ export default function Onboarding({
               <label htmlFor="tenant-address">Dirección (opcional)</label>
               <input id="tenant-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Av. Central 123" />
             </div>
-            <button className="btn btn-gold btn-lg btn-block" type="submit" disabled={!name.trim()}>
-              <Store size={17} /> Crear y entrar
+            <button className="btn btn-gold btn-lg btn-block" type="submit" disabled={!name.trim() || busy}>
+              <Store size={17} /> {busy ? 'Creando…' : 'Crear y entrar'}
             </button>
             {tenants.length === 0 && (
-              <button className="btn btn-ghost btn-block" type="button" onClick={() => onCreate({ name: 'Demo Market', currency, taxRate: 0, ruc: '', phone: '', address: '' })}>
+              <button
+                className="btn btn-ghost btn-block"
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    await onCreate({ name: 'Demo Market', currency, taxRate: 0, ruc: '', phone: '', address: '' })
+                  } catch (error) {
+                    onError(error instanceof Error ? error.message : 'No se pudo crear el negocio')
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
                 Probar con negocio de ejemplo
               </button>
             )}

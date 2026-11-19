@@ -1,6 +1,10 @@
 const moneyFormatters = new Map<string, Intl.NumberFormat>()
 
 export function money(amount: number, currency = 'USD') {
+  // El lempira no tiene un símbolo reconocido por Intl en todos los navegadores.
+  if (currency === 'HNL') {
+    return `Lps. ${new Intl.NumberFormat('es-419', { minimumFractionDigits: 2 }).format(amount)}`
+  }
   if (!moneyFormatters.has(currency)) {
     moneyFormatters.set(
       currency,

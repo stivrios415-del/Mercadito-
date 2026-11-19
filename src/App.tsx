@@ -567,7 +567,12 @@ export default function App() {
   if (!tenant) {
     return (
       <>
-        <Onboarding tenants={tenants} onCreate={createTenant} onOpen={setTenant} />
+        <Onboarding
+          tenants={tenants}
+          onCreate={createTenant}
+          onOpen={setTenant}
+          onError={(message) => notify(message, true)}
+        />
         {toast && <Toast key={toast.id} message={toast.message} error={toast.error} onClose={() => setToast(null)} />}
       </>
     )
