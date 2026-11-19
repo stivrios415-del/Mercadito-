@@ -1,4 +1,4 @@
-const CACHE = 'mercadito-romo-v1'
+const CACHE = 'mercadito-romo-v2'
 const SHELL = [
   '/',
   '/index.html',
@@ -27,23 +27,35 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
 
+  // Navegación: primero la red, para que un nuevo deploy se vea de inmediato.
+  // Si no hay conexión, se usa la última versión guardada.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone()
+            caches.open(CACHE).then((cache) => cache.put('/index.html', copy))
+          }
+          return response
+        })
+        .catch(() => caches.match('/index.html')),
+    )
+    return
+  }
+
+  // Archivos con hash (JS/CSS): cache-first, son inmutables.
   event.respondWith(
     caches.match(request).then(
       (cached) =>
         cached ||
-        fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const copy = response.clone()
-              caches.open(CACHE).then((cache) => cache.put(request, copy))
-            }
-            return response
-          })
-          .catch(() =>
-            request.mode === 'navigate'
-              ? caches.match('/index.html')
-              : new Response('', { status: 503, statusText: 'Sin conexión' }),
-          ),
+        fetch(request).then((response) => {
+          if (response.ok) {
+            const copy = response.clone()
+            caches.open(CACHE).then((cache) => cache.put(request, copy))
+          }
+          return response
+        }),
     ),
   )
 })
