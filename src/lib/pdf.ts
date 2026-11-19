@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import type { Invoice, Tenant } from '../types'
 import { dateLabel, money } from './format'
+import type { ReportData } from './report'
 
 function logoFormat(logo: string): 'PNG' | 'JPEG' {
   return logo.startsWith('data:image/png') ? 'PNG' : 'JPEG'
@@ -146,4 +147,155 @@ export function buildTicketPdf(tenant: Tenant, invoice: Invoice): jsPDF {
 
 export function downloadTicketPdf(tenant: Tenant, invoice: Invoice) {
   buildTicketPdf(tenant, invoice).save(`ticket-${String(invoice.number).padStart(6, '0')}.pdf`)
+}
+
+function reportFileKey(report: ReportData) {
+  return new Date(report.start).toISOString().slice(0, 10)
+}
+
+function reportFileName(report: ReportData, extension: string) {
+  return `reporte-${report.period}-${reportFileKey(report)}.${extension}`
+}
+
+export function buildReportPdf(tenant: Tenant, report: ReportData): jsPDF {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const width = doc.internal.pageSize.getWidth()
+  const margin = 14
+  const contentWidth = width - margin * 2
+  const currency = report.currency || tenant.currency
+  drawHeader(doc, tenant, width)
+
+  let y = 50
+  const ensure = (needed: number) => {
+    if (y + needed > 194) {
+      doc.addPage()
+      y = 20
+    }
+  }
+  const section = (title: string) => {
+    ensure(14)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.setTextColor(38, 35, 28)
+    doc.text(title, margin, y)
+    y += 5
+    doc.setDrawColor(200, 162, 74)
+    doc.line(margin, y, width - margin, y)
+    y += 7
+  }
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text(report.title, margin, y)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(110, 102, 84)
+  doc.text(`${report.rangeLabel}   ·   Generado: ${dateLabel(report.generatedAt)}`, margin, y + 7)
+  doc.setTextColor(38, 35, 28)
+  y += 15
+
+  const metrics = [
+    { label: 'VENTAS TOTALES', value: money(report.total, currency) },
+    { label: 'FACTURAS', value: String(report.invoiceCount) },
+    { label: 'UNIDADES VENDIDAS', value: String(report.unitsSold) },
+    { label: 'TICKET PROMEDIO', value: money(report.averageTicket, currency) },
+  ]
+  const boxWidth = contentWidth / 4 - 3
+  metrics.forEach((metric, index) => {
+    const x = margin + index * (boxWidth + 4)
+    doc.setFillColor(247, 242, 230)
+    doc.roundedRect(x, y, boxWidth, 17, 2, 2, 'F')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(110, 102, 84)
+    doc.text(metric.label, x + 5, y + 6)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.setTextColor(160, 120, 38)
+    doc.text(metric.value, x + 5, y + 13)
+  })
+  doc.setTextColor(38, 35, 28)
+  y += 25
+
+  section('Ventas por método de pago')
+  doc.setFillColor(247, 242, 230)
+  doc.rect(margin, y - 5, contentWidth, 7, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('MÉTODO', margin + 3, y)
+  doc.text('FACTURAS', margin + 90, y, { align: 'right' })
+  doc.text('TOTAL', width - margin - 3, y, { align: 'right' })
+  y += 7
+  for (const payment of report.payments) {
+    doc.setFont('helvetica', 'normal')
+    doc.text(payment.method, margin + 3, y)
+    doc.text(String(payment.count), margin + 90, y, { align: 'right' })
+    doc.text(money(payment.total, currency), width - margin - 3, y, { align: 'right' })
+    y += 6
+  }
+  y += 6
+
+  section('Productos más vendidos')
+  doc.setFillColor(247, 242, 230)
+  doc.rect(margin, y - 5, contentWidth, 7, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.text('PRODUCTO', margin + 3, y)
+  doc.text('UND.', margin + 125, y, { align: 'right' })
+  doc.text('INGRESO', margin + 175, y, { align: 'right' })
+  doc.text('COSTO', margin + 215, y, { align: 'right' })
+  doc.text('GANANCIA', width - margin - 3, y, { align: 'right' })
+  y += 7
+  const shown = report.products.slice(0, 14)
+  if (shown.length === 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.text('Sin ventas en el período seleccionado.', margin + 3, y)
+    y += 7
+  }
+  for (const product of shown) {
+    ensure(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text(doc.splitTextToSize(product.name, 100)[0] ?? '', margin + 3, y)
+    doc.text(String(product.qty), margin + 125, y, { align: 'right' })
+    doc.text(money(product.revenue, currency), margin + 175, y, { align: 'right' })
+    doc.text(money(product.cost, currency), margin + 215, y, { align: 'right' })
+    doc.text(money(product.profit, currency), width - margin - 3, y, { align: 'right' })
+    y += 6
+  }
+  if (report.products.length > shown.length) {
+    doc.setTextColor(110, 102, 84)
+    doc.setFontSize(7)
+    doc.text(`Y ${report.products.length - shown.length} productos más en el Excel.`, margin + 3, y)
+    doc.setTextColor(38, 35, 28)
+    y += 7
+  }
+  y += 5
+
+  section('Análisis de inversión, ganancias y pérdidas')
+  const analysis = [
+    { label: 'Inversión en inventario (costo × stock actual)', value: money(report.inventoryValue, currency) },
+    { label: 'Costo de lo vendido', value: money(report.cogs, currency) },
+    { label: 'Ganancia bruta', value: money(report.grossProfit, currency) },
+    { label: `Pérdidas por mermas (${report.lossQty} und.)`, value: money(report.lossCost, currency) },
+    { label: 'Resultado neto', value: money(report.netProfit, currency) },
+  ]
+  for (const row of analysis) {
+    ensure(8)
+    const negative = row.value.startsWith('-')
+    doc.setFont('helvetica', row.label === 'Resultado neto' ? 'bold' : 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(negative ? 163 : 38, negative ? 64 : 35, negative ? 52 : 28)
+    doc.text(row.label, margin + 3, y)
+    doc.text(row.value, width - margin - 3, y, { align: 'right' })
+    y += 7
+  }
+  doc.setTextColor(110, 102, 84)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.text('Inversión = costo unitario × stock. Ganancia bruta = ventas − costo de lo vendido. Resultado neto = ganancia bruta − mermas.', margin + 3, y + 2)
+
+  return doc
+}
+
+export function downloadReportPdf(tenant: Tenant, report: ReportData) {
+  buildReportPdf(tenant, report).save(reportFileName(report, 'pdf'))
 }

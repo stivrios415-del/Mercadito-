@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { ImagePlus, LockKeyhole, Palette, Store, Trash2, Users } from 'lucide-react'
+import { ImagePlus, LockKeyhole, Palette, ShieldCheck, Store, Trash2, Users } from 'lucide-react'
 import type { Cashier, Tenant } from '../types'
 import { CURRENCIES } from '../lib/currencies'
+import { dueDateLabel, subscriptionBadge, subscriptionStatus, SUBSCRIPTION_LABEL } from '../lib/billing'
 import { optimizeImage } from '../lib/image'
 import { BrandLogo } from './Ui'
 import CashiersView, { type CashierInput } from './CashiersView'
@@ -16,6 +17,8 @@ export default function SettingsView({
   onDeleteCashier,
   onDelete,
   onSwitch,
+  onOpenAdmin,
+  isSuperAdmin,
   onToast,
 }: {
   tenant: Tenant
@@ -25,6 +28,8 @@ export default function SettingsView({
   onDeleteCashier: (cashier: Cashier) => void
   onDelete: () => void
   onSwitch: () => void
+  onOpenAdmin: () => void
+  isSuperAdmin: boolean
   onToast: (message: string, error?: boolean) => void
 }) {
   const [name, setName] = useState(tenant.name)
@@ -126,18 +131,39 @@ export default function SettingsView({
       </form>
 
       <div className="stack">
+        {isSuperAdmin && (
+          <section className="card" style={{ borderColor: 'rgba(195, 155, 63, .45)' }}>
+            <div className="card-title"><h2><ShieldCheck size={17} style={{ verticalAlign: -3, marginRight: 6 }} /> Multinegocio</h2><span className="badge">Solo administrador</span></div>
+            <p className="small muted">Gestiona todos los negocios, quién está al día y a quién bloquear. Cada tienda mantiene su enlace, logo, productos y facturas separados.</p>
+            <div className="divider" />
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="badge">Enlace: mercadito.app/?t={tenant.slug}</div>
+              <button type="button" className="btn btn-gold btn-block" onClick={onOpenAdmin}><ShieldCheck size={15} /> Panel de negocios y cobros</button>
+              <button type="button" className="btn btn-block" onClick={onSwitch}>Cambiar de negocio</button>
+            </div>
+          </section>
+        )}
+
         <section className="card">
-          <div className="card-title"><h2><Users size={17} style={{ verticalAlign: -3, marginRight: 6 }} /> Multinegocio</h2></div>
-          <p className="small muted">Cada supermercado o pulpería tiene su propio enlace, logo, productos, stock y facturas.</p>
-          <div className="divider" />
-          <div className="stack" style={{ gap: 8 }}>
-            <div className="badge">Enlace: mercadito.app/?t={tenant.slug}</div>
-            <label className="row spread small" style={{ cursor: 'pointer', padding: '10px 0', borderTop: '1px solid var(--line)' }}>
-              <span className="row" style={{ gap: 8 }}><LockKeyhole size={15} /> Exigir login para vender</span>
-              <input type="checkbox" checked={requireLogin} onChange={(e) => setRequireLogin(e.target.checked)} />
-            </label>
-            <button type="button" className="btn btn-block" onClick={onSwitch}>Cambiar de negocio</button>
+          <div className="card-title"><h2><LockKeyhole size={17} style={{ verticalAlign: -3, marginRight: 6 }} /> Acceso a caja</h2></div>
+          <p className="small muted">Si lo activas, solo los cajeros con correo y contraseña podrán cobrar. Tú siempre puedes entrar como dueño.</p>
+          <label className="row spread small" style={{ cursor: 'pointer', padding: '12px 0 0' }}>
+            <span className="row" style={{ gap: 8 }}>Exigir login para vender</span>
+            <input type="checkbox" checked={requireLogin} onChange={(e) => setRequireLogin(e.target.checked)} />
+          </label>
+        </section>
+
+        <section className="card">
+          <div className="card-title">
+            <h2><Store size={17} style={{ verticalAlign: -3, marginRight: 6 }} /> Suscripción</h2>
+            <span className={`badge ${subscriptionBadge(subscriptionStatus(tenant))}`}>{SUBSCRIPTION_LABEL[subscriptionStatus(tenant)]}</span>
           </div>
+          <p className="small muted" style={{ margin: 0 }}>Vencimiento: <strong>{dueDateLabel(tenant)}</strong>.</p>
+          {!['active', 'soon'].includes(subscriptionStatus(tenant)) && (
+            <p className="small" style={{ color: '#a34034', margin: '10px 0 0' }}>
+              Las ventas están bloqueadas. Comunícate con el administrador del software para regularizar el pago.
+            </p>
+          )}
         </section>
         <CashiersView cashiers={cashiers} onSave={onSaveCashier} onDelete={onDeleteCashier} />
         <section className="card" style={{ borderColor: 'rgba(163, 64, 52, 0.2)' }}>

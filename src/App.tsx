@@ -1,11 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
   BarChart3,
+  LockKeyhole,
   Package,
   Plus,
   ReceiptText,
   ScanLine,
   Settings,
+  ShieldCheck,
   ShoppingBasket,
   ShoppingCart,
   Store,
@@ -13,7 +15,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react'
-import type { CartLine, Cashier, Invoice, PaymentMethod, Product, Session, Tenant, View } from './types'
+import type { CartLine, Cashier, Invoice, PaymentMethod, Product, Session, StockLoss, Tenant, View } from './types'
 import {
   deleteTenant as removeTenantData,
   deleteProduct as removeProductData,
@@ -21,11 +23,13 @@ import {
   getProductByBarcode,
   listCashiers,
   listInvoices,
+  listLosses,
   listProducts,
   listTenants,
   newId,
   nextInvoiceNumber,
   putInvoice,
+  putLoss,
   putCashier,
   putProduct,
   putTenant,
@@ -38,21 +42,27 @@ import {
   deactivateCashierRemote,
   deleteProductRemote,
   deleteTenantRemote,
+  fetchAdminTenants,
   fetchCashiers,
   fetchInvoices,
   fetchMyMemberships,
+  fetchStockLosses,
   fetchProducts,
   fetchTenants,
   getAuthUser,
   recordSaleRemote,
+  recordStockLossRemote,
   saveCashierRemote,
   signIn,
   signOut,
+  updateTenantBillingRemote,
   updateTenantRemote,
   uploadImage,
   upsertProductRemote,
+  type AdminTenant,
   type AuthUser,
 } from './lib/remote'
+import { canSell, isSuperAdminEmail, subscriptionBadge, subscriptionStatus, SUBSCRIPTION_LABEL, dueDateLabel } from './lib/billing'
 import { connectPrinter, printInvoice, type PrinterConnection } from './lib/bluetooth'
 import { money } from './lib/format'
 import Onboarding, { type NewTenantInput } from './components/Onboarding'
@@ -62,6 +72,8 @@ import ProductForm from './components/ProductForm'
 import type { ProductInput } from './components/ProductForm'
 import InvoicesView from './components/InvoicesView'
 import InvoiceModal from './components/InvoiceModal'
+import ReportsView, { type LossInput } from './components/ReportsView'
+import AdminView from './components/AdminView'
 import SettingsView, { type TenantUpdates } from './components/SettingsView'
 import type { CashierInput } from './components/CashiersView'
 import { LoginGate, SessionModal, type LoginHandler } from './components/Login'
@@ -73,6 +85,7 @@ const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'productos', label: 'Productos', icon: Package },
   { view: 'escanear', label: 'Escanear', icon: ScanLine },
   { view: 'facturas', label: 'Facturas', icon: ReceiptText },
+  { view: 'reportes', label: 'Reportes', icon: BarChart3 },
   { view: 'configuracion', label: 'Configuración', icon: Settings },
 ]
 
@@ -81,15 +94,17 @@ const META: Record<View, { title: string; subtitle: string }> = {
   productos: { title: 'Productos', subtitle: 'Escanea códigos, toma fotos y controla tu stock.' },
   escanear: { title: 'Escanear código', subtitle: 'Usa la cámara del celular o de la computadora.' },
   facturas: { title: 'Facturas', subtitle: 'Reimprime o descarga cualquier compra.' },
+  reportes: { title: 'Reportes y análisis', subtitle: 'Ventas diarias, semanales y mensuales en PDF o Excel.' },
   configuracion: { title: 'Configuración', subtitle: 'Personaliza tu negocio y su identidad.' },
+  admin: { title: 'Panel de administración', subtitle: 'Negocios, pagos y bloqueo de ventas.' },
 }
 
 const ScannerView = lazy(() => import('./components/ScannerView'))
 
 const DEMO_PRODUCTS = [
-  { barcode: '7790000000011', name: 'Leche entera 1 L', price: 3.5, stock: 24 },
-  { barcode: '7790000000028', name: 'Pan de molde 500 g', price: 2.75, stock: 12 },
-  { barcode: '7790000000035', name: 'Café molido 250 g', price: 6.9, stock: 4 },
+  { barcode: '7790000000011', name: 'Leche entera 1 L', price: 3.5, cost: 2.4, stock: 24 },
+  { barcode: '7790000000028', name: 'Pan de molde 500 g', price: 2.75, cost: 1.6, stock: 12 },
+  { barcode: '7790000000035', name: 'Café molido 250 g', price: 6.9, cost: 4.2, stock: 4 },
 ]
 
 export default function App() {
@@ -101,6 +116,7 @@ export default function App() {
   const [view, setView] = useState<View>('ventas')
   const [products, setProducts] = useState<Product[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [losses, setLosses] = useState<StockLoss[]>([])
   const [cashiers, setCashiers] = useState<Cashier[]>([])
   const [cart, setCart] = useState<CartLine[]>([])
   const [session, setSession] = useState<Session>({ kind: 'owner' })
@@ -118,6 +134,12 @@ export default function App() {
   }, [])
 
   const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+  const isSuperAdmin = supabaseConfigured && isSuperAdminEmail(authUser?.email)
+  const salesBlocked = Boolean(tenant && !canSell(tenant))
+  const navItems = isSuperAdmin
+    ? [...NAV, { view: 'admin' as View, label: 'Admin', icon: ShieldCheck }]
+    : NAV
 
   const downloadPdf = async (invoice: Invoice) => {
     if (!tenant) return
@@ -194,16 +216,18 @@ export default function App() {
     void (async () => {
       try {
         if (supabaseConfigured) {
-          const [loadedProducts, loadedInvoices, loadedCashiers, memberships] = await Promise.all([
+          const [loadedProducts, loadedInvoices, loadedCashiers, loadedLosses, memberships] = await Promise.all([
             fetchProducts(tenantId),
             fetchInvoices(tenantId),
             fetchCashiers(tenantId),
+            fetchStockLosses(tenantId).catch(() => [] as StockLoss[]),
             fetchMyMemberships(),
           ])
           if (cancelled) return
           setProducts(loadedProducts)
           setInvoices(loadedInvoices)
           setCashiers(loadedCashiers)
+          setLosses(loadedLosses)
           const mine = memberships.find((item) => item.tenant_id === tenantId)
           if (mine?.role === 'cashier') {
             setSession({ kind: 'cashier', id: mine.user_id, name: mine.display_name })
@@ -211,15 +235,17 @@ export default function App() {
             setSession({ kind: 'owner' })
           }
         } else {
-          const [loadedProducts, loadedInvoices, loadedCashiers] = await Promise.all([
+          const [loadedProducts, loadedInvoices, loadedCashiers, loadedLosses] = await Promise.all([
             listProducts(tenantId),
             listInvoices(tenantId),
             listCashiers(tenantId),
+            listLosses(tenantId),
           ])
           if (cancelled) return
           setProducts(loadedProducts)
           setInvoices(loadedInvoices)
           setCashiers(loadedCashiers)
+          setLosses(loadedLosses)
           setSession({ kind: 'owner' })
         }
       } catch (error) {
@@ -239,6 +265,10 @@ export default function App() {
   useEffect(() => () => printerRef.current?.disconnect(), [])
 
   const createTenant = async (input: NewTenantInput) => {
+    if (!isSuperAdmin && tenants.length > 0) {
+      notify('Tu cuenta ya tiene un negocio. Si necesitas otro, contacta al administrador.', true)
+      return
+    }
     const base = slugify(input.name) || 'negocio'
     let slug = base
     let suffix = 2
@@ -437,7 +467,7 @@ export default function App() {
       if (!line) {
         return [
           ...previous,
-          { productId: product.id, barcode: product.barcode, name: product.name, price: product.price, image: product.image, qty: 1 },
+          { productId: product.id, barcode: product.barcode, name: product.name, price: product.price, cost: product.cost ?? 0, image: product.image, qty: 1 },
         ]
       }
       if (line.qty >= product.stock) {
@@ -465,6 +495,7 @@ export default function App() {
 
   const checkout = async (payment: PaymentMethod, customer: string) => {
     if (!tenant || cart.length === 0) return
+    if (!canSell(tenant)) return notify('Ventas bloqueadas: regulariza el pago para poder cobrar', true)
     for (const line of cart) {
       const product = products.find((item) => item.id === line.productId)
       if (!product || product.stock < line.qty) return notify('Stock insuficiente para completar la venta', true)
@@ -526,6 +557,58 @@ export default function App() {
     }
   }
 
+  const recordLoss = async (input: LossInput) => {
+    if (!tenant) throw new Error('No hay un negocio seleccionado')
+    const product = products.find((item) => item.id === input.productId)
+    if (!product) throw new Error('Producto no encontrado')
+    if (input.qty > product.stock) throw new Error('No hay tanto stock disponible')
+
+    let loss: StockLoss
+    if (supabaseConfigured) {
+      loss = await recordStockLossRemote({
+        tenantId: tenant.id,
+        productId: input.productId,
+        qty: input.qty,
+        reason: input.reason,
+        note: input.note,
+      })
+    } else {
+      loss = {
+        id: newId(),
+        tenantId: tenant.id,
+        productId: product.id,
+        productName: product.name,
+        qty: input.qty,
+        cost: product.cost ?? 0,
+        reason: input.reason,
+        note: input.note,
+        createdAt: Date.now(),
+      }
+      await putLoss(loss)
+      await putProduct({ ...product, stock: product.stock - input.qty, updatedAt: Date.now() })
+    }
+    setLosses((previous) => [loss, ...previous])
+    setProducts((previous) =>
+      previous.map((item) => (item.id === product.id ? { ...item, stock: item.stock - input.qty, updatedAt: Date.now() } : item)),
+    )
+    setCart((previous) => previous.filter((line) => line.productId !== product.id || line.qty <= product.stock - input.qty))
+  }
+
+  const loadAdminTenants = async (): Promise<AdminTenant[]> => fetchAdminTenants()
+
+  const saveBilling = async (id: string, paidUntil: number | null, blocked: boolean) => {
+    await updateTenantBillingRemote(id, paidUntil, blocked)
+    setTenants((previous) => previous.map((item) => (item.id === id ? { ...item, paidUntil, blocked } : item)))
+    if (tenant?.id === id) setTenant({ ...tenant, paidUntil, blocked })
+  }
+
+  const openAdminTenant = (id: string) => {
+    const found = tenants.find((item) => item.id === id)
+    if (!found) return notify('No se pudo abrir el negocio', true)
+    setTenant(found)
+    setView('ventas')
+  }
+
   const handleCashierLogin: LoginHandler = async (email, password) => {
     if (supabaseConfigured) {
       await signIn(email, password)
@@ -572,6 +655,7 @@ export default function App() {
           onCreate={createTenant}
           onOpen={setTenant}
           onError={(message) => notify(message, true)}
+          canCreateMore={isSuperAdmin || tenants.length === 0}
         />
         {toast && <Toast key={toast.id} message={toast.message} error={toast.error} onClose={() => setToast(null)} />}
       </>
@@ -593,7 +677,7 @@ export default function App() {
         <div>
           <div className="nav-label">Menú</div>
           <nav className="nav-list">
-            {NAV.map(({ view: itemView, label, icon: Icon }) => (
+            {navItems.map(({ view: itemView, label, icon: Icon }) => (
               <button key={itemView} className={`nav-item${view === itemView ? ' active' : ''}`} onClick={() => setView(itemView)}>
                 <Icon size={18} /> {label}
               </button>
@@ -627,7 +711,11 @@ export default function App() {
             <p>{meta.subtitle}</p>
           </div>
           <div className="topbar-actions">
-            <button className="brand-chip" onClick={() => setSwitchOpen(true)} title="Cambiar de negocio">
+            <button
+              className="brand-chip"
+              onClick={() => (isSuperAdmin ? setSwitchOpen(true) : notify('Solo el administrador del software puede cambiar entre negocios'))}
+              title={isSuperAdmin ? 'Cambiar de negocio' : 'Negocio actual'}
+            >
               <BrandLogo tenant={tenant} />
               <span>
                 {tenant.name}
@@ -645,7 +733,22 @@ export default function App() {
           </div>
         </header>
 
-        {view === 'ventas' && tenant.requireLogin && session.kind !== 'cashier' && (
+        {salesBlocked && (
+          <section className="card" style={{ borderColor: 'rgba(163,64,52,.35)', background: 'rgba(255,245,242,.9)' }}>
+            <div className="row" style={{ gap: 12 }}>
+              <div className="stat-icon" style={{ color: '#a34034', background: 'rgba(255,230,226,.9)' }}><LockKeyhole size={20} /></div>
+              <div>
+                <strong style={{ color: '#a34034' }}>Ventas bloqueadas</strong>
+                <p className="small" style={{ margin: '4px 0 0', color: '#7d4a43' }}>
+                  Este negocio está vencido o fue bloqueado por el administrador ({SUBSCRIPTION_LABEL[subscriptionStatus(tenant)]}).
+                  Vencimiento: {dueDateLabel(tenant)}. Puedes consultar tus datos y facturas, pero no cobrar hasta regularizar el pago.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {view === 'ventas' && tenant.requireLogin && session.kind !== 'cashier' && !salesBlocked && (
           <LoginGate
             onLogin={handleCashierLogin}
             onToast={notify}
@@ -662,7 +765,7 @@ export default function App() {
           />
         )}
 
-        {view === 'ventas' && (!tenant.requireLogin || session.kind === 'cashier') && (
+        {view === 'ventas' && (!tenant.requireLogin || session.kind === 'cashier') && !salesBlocked && (
           <PosView
             products={products}
             cart={cart}
@@ -718,6 +821,17 @@ export default function App() {
           />
         )}
 
+        {view === 'reportes' && (
+          <ReportsView
+            tenant={tenant}
+            products={products}
+            invoices={invoices}
+            losses={losses}
+            onRecordLoss={recordLoss}
+            onToast={notify}
+          />
+        )}
+
         {view === 'configuracion' && (
           <SettingsView
             tenant={tenant}
@@ -727,13 +841,24 @@ export default function App() {
             onDeleteCashier={removeCashier}
             onDelete={handleDeleteTenant}
             onSwitch={() => setSwitchOpen(true)}
+            onOpenAdmin={() => setView('admin')}
+            isSuperAdmin={isSuperAdmin}
+            onToast={notify}
+          />
+        )}
+
+        {view === 'admin' && isSuperAdmin && (
+          <AdminView
+            onLoad={loadAdminTenants}
+            onSave={saveBilling}
+            onOpen={openAdminTenant}
             onToast={notify}
           />
         )}
       </main>
 
       <nav className="bottom-nav">
-        {NAV.map(({ view: itemView, label, icon: Icon }) => (
+        {navItems.map(({ view: itemView, label, icon: Icon }) => (
           <button key={itemView} className={view === itemView ? 'active' : ''} onClick={() => setView(itemView)}>
             <Icon size={19} /> {label}
           </button>

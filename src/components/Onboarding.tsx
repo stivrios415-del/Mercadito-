@@ -18,11 +18,14 @@ export default function Onboarding({
   onCreate,
   onOpen,
   onError,
+  canCreateMore,
 }: {
   tenants: Tenant[]
   onCreate: (input: NewTenantInput) => Promise<void>
   onOpen: (tenant: Tenant) => void
   onError: (message: string) => void
+  /** Solo el dueño del software puede administrar varios negocios. */
+  canCreateMore: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
@@ -73,6 +76,15 @@ export default function Onboarding({
             </section>
           )}
 
+          {tenants.length > 0 && !canCreateMore ? (
+            <section className="card pad-lg stack">
+              <div className="card-title" style={{ marginBottom: 0 }}><h2>Tu negocio ya está listo</h2><Sparkles size={18} className="muted" /></div>
+              <p className="small muted" style={{ margin: 0 }}>
+                Cada dueño administra un solo negocio. Si necesitas crear otro o gestionar varios, comunícate con el administrador del software.
+              </p>
+              <button className="btn btn-gold btn-block" onClick={() => onOpen(tenants[0])}><ArrowRight size={16} /> Entrar a mi negocio</button>
+            </section>
+          ) : (
           <form className="card pad-lg stack" onSubmit={submit}>
             <div className="card-title" style={{ marginBottom: 0 }}>
               <h2>{tenants.length ? 'Agregar otro negocio' : 'Crear mi negocio'}</h2>
@@ -130,6 +142,7 @@ export default function Onboarding({
             )}
             <p className="file-hint" style={{ margin: 0 }}>Podrás cambiar el nombre, el logo y los datos cuando quieras desde Configuración.</p>
           </form>
+          )}
         </div>
       </div>
     </div>

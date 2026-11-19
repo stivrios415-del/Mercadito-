@@ -27,6 +27,7 @@ export default function ProductForm({
   const [barcode, setBarcode] = useState(product?.barcode ?? initialBarcode)
   const [name, setName] = useState(product?.name ?? '')
   const [price, setPrice] = useState(String(product?.price ?? ''))
+  const [cost, setCost] = useState(String(product?.cost ?? ''))
   const [stock, setStock] = useState(String(product?.stock ?? '0'))
   const [image, setImage] = useState(product?.image ?? '')
   const [scanOpen, setScanOpen] = useState(false)
@@ -44,14 +45,17 @@ export default function ProductForm({
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     const parsedPrice = Number(price)
+    const parsedCost = Number(cost)
     const parsedStock = Number(stock)
     if (!name.trim()) return onToast('Escribe el nombre del producto', true)
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) return onToast('Revisa el precio', true)
+    if (cost.trim() && (!Number.isFinite(parsedCost) || parsedCost < 0)) return onToast('Revisa el costo', true)
     if (!Number.isFinite(parsedStock)) return onToast('Revisa el stock', true)
     onSave({
       barcode: barcode.trim(),
       name: name.trim(),
       price: parsedPrice,
+      cost: cost.trim() ? parsedCost : 0,
       stock: parsedStock,
       image: image || undefined,
     })
@@ -88,16 +92,21 @@ export default function ProductForm({
             <input id="product-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Leche entera 1 L" required />
           </div>
 
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
             <div className="field">
-              <label htmlFor="product-price">Precio ({currency})</label>
+              <label htmlFor="product-price">Precio de venta ({currency})</label>
               <input id="product-price" className="input" type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={money(0, currency)} required />
+            </div>
+            <div className="field">
+              <label htmlFor="product-cost">Costo unitario ({currency})</label>
+              <input id="product-cost" className="input" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" />
             </div>
             <div className="field">
               <label htmlFor="product-stock">Stock</label>
               <input id="product-stock" className="input" type="number" step="1" value={stock} onChange={(e) => setStock(e.target.value)} required />
             </div>
           </div>
+          <span className="file-hint" style={{ marginTop: -6 }}>El costo se usa para calcular la inversión, la ganancia y las pérdidas en Reportes.</span>
 
           <div className="field">
             <label>Foto del producto</label>

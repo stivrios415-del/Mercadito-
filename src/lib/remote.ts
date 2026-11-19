@@ -1,4 +1,4 @@
-import type { CartLine, Cashier, Invoice, PaymentMethod, Product, Tenant } from '../types'
+import type { CartLine, Cashier, Invoice, LossReason, PaymentMethod, Product, StockLoss, Tenant } from '../types'
 import { requireSupabase, supabase } from './supabase'
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -14,6 +14,8 @@ type TenantRow = {
   currency: string
   tax_rate: number
   require_login: boolean
+  paid_until: string | null
+  blocked: boolean
   created_at: string
 }
 
@@ -23,6 +25,7 @@ type ProductRow = {
   barcode: string
   name: string
   price: number | string
+  cost: number | string | null
   stock: number
   image_url: string | null
   created_at: string
@@ -40,6 +43,18 @@ type InvoiceRow = {
   subtotal: number | string
   tax: number | string
   total: number | string
+  created_at: string
+}
+
+type StockLossRow = {
+  id: string
+  tenant_id: string
+  product_id: string
+  product_name: string
+  qty: number
+  cost: number | string
+  reason: LossReason
+  note: string | null
   created_at: string
 }
 
@@ -67,6 +82,8 @@ const toTenant = (row: TenantRow): Tenant => ({
   currency: row.currency,
   taxRate: num(row.tax_rate),
   requireLogin: row.require_login,
+  paidUntil: row.paid_until ? time(row.paid_until) : null,
+  blocked: Boolean(row.blocked),
   createdAt: time(row.created_at),
 })
 
@@ -76,6 +93,7 @@ const toProduct = (row: ProductRow): Product => ({
   barcode: row.barcode,
   name: row.name,
   price: num(row.price),
+  cost: num(row.cost),
   stock: row.stock,
   image: row.image_url ?? undefined,
   createdAt: time(row.created_at),
@@ -93,6 +111,18 @@ const toInvoice = (row: InvoiceRow): Invoice => ({
   payment: row.payment,
   customer: row.customer ?? undefined,
   cashierName: row.cashier_name ?? undefined,
+  createdAt: time(row.created_at),
+})
+
+const toLoss = (row: StockLossRow): StockLoss => ({
+  id: row.id,
+  tenantId: row.tenant_id,
+  productId: row.product_id,
+  productName: row.product_name,
+  qty: row.qty,
+  cost: num(row.cost),
+  reason: row.reason,
+  note: row.note ?? undefined,
   createdAt: time(row.created_at),
 })
 
@@ -237,6 +267,8 @@ export async function createTenantRemote(input: NewTenantRemote, logoUrl?: strin
     currency: input.currency,
     taxRate: input.taxRate,
     requireLogin: false,
+    paidUntil: null,
+    blocked: false,
     createdAt: Date.now(),
   }
 }
@@ -287,6 +319,7 @@ export async function upsertProductRemote(product: Product, imageUrl?: string): 
       barcode: product.barcode,
       name: product.name,
       price: product.price,
+      cost: product.cost ?? 0,
       stock: product.stock,
       image_url: imageUrl !== undefined ? imageUrl : product.image ?? null,
       created_at: new Date(product.createdAt).toISOString(),
@@ -405,5 +438,97 @@ export async function deactivateCashierRemote(cashier: Cashier) {
     .update({ active: false })
     .eq('tenant_id', cashier.tenantId)
     .eq('user_id', cashier.id)
+  if (error) throw new Error(error.message)
+}
+
+// -----------------------------------------------------------------------------
+// Mermas / pérdidas de stock
+// -----------------------------------------------------------------------------
+export async function fetchStockLosses(tenantId: string): Promise<StockLoss[]> {
+  const { data, error } = await requireSupabase()
+    .from('stock_losses')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+  return unwrap(data, error).map((row) => toLoss(row as StockLossRow))
+}
+
+export async function recordStockLossRemote(input: {
+  tenantId: string
+  productId: string
+  qty: number
+  reason: LossReason
+  note?: string
+}): Promise<StockLoss> {
+  const { data, error } = await requireSupabase().rpc('record_stock_loss', {
+    p_tenant: input.tenantId,
+    p_product: input.productId,
+    p_qty: input.qty,
+    p_reason: input.reason,
+    p_note: input.note || null,
+  })
+  return toLoss(unwrap(data, error) as StockLossRow)
+}
+
+// -----------------------------------------------------------------------------
+// Panel del dueño del software (solo super-admin)
+// -----------------------------------------------------------------------------
+export type AdminTenant = {
+  id: string
+  slug: string
+  name: string
+  currency: string
+  ownerEmail: string | null
+  paidUntil: number | null
+  blocked: boolean
+  productsCount: number
+  invoicesCount: number
+  totalSales: number
+  createdAt: number
+}
+
+type AdminTenantRow = {
+  id: string
+  slug: string
+  name: string
+  currency: string
+  owner_email: string | null
+  paid_until: string | null
+  blocked: boolean
+  products_count: number | string
+  invoices_count: number | string
+  total_sales: number | string
+  created_at: string
+}
+
+const toAdminTenant = (row: AdminTenantRow): AdminTenant => ({
+  id: row.id,
+  slug: row.slug,
+  name: row.name,
+  currency: row.currency,
+  ownerEmail: row.owner_email,
+  paidUntil: row.paid_until ? time(row.paid_until) : null,
+  blocked: Boolean(row.blocked),
+  productsCount: Number(row.products_count ?? 0),
+  invoicesCount: Number(row.invoices_count ?? 0),
+  totalSales: num(row.total_sales),
+  createdAt: time(row.created_at),
+})
+
+export async function fetchAdminTenants(): Promise<AdminTenant[]> {
+  const { data, error } = await requireSupabase().rpc('admin_list_tenants')
+  return unwrap<AdminTenantRow[]>(data, error).map((row) => toAdminTenant(row))
+}
+
+export async function updateTenantBillingRemote(
+  tenantId: string,
+  paidUntil: number | null,
+  blocked: boolean,
+): Promise<void> {
+  const { error } = await requireSupabase().rpc('admin_set_billing', {
+    p_tenant: tenantId,
+    p_paid_until: paidUntil ? new Date(paidUntil).toISOString() : null,
+    p_blocked: blocked,
+  })
   if (error) throw new Error(error.message)
 }

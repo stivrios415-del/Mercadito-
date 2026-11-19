@@ -1,4 +1,4 @@
-const CACHE = 'mercadito-romo-v3'
+const CACHE = 'mercadito-romo-v4'
 const SHELL = [
   '/',
   '/index.html',
