@@ -1,7 +1,8 @@
-const CACHE = 'mercadito-romo-v2'
+const CACHE = 'mercadito-romo-v3'
 const SHELL = [
   '/',
   '/index.html',
+  '/favicon.ico',
   '/manifest.webmanifest',
   '/icons/icon.svg',
   '/icons/icon-192.png',

@@ -45,6 +45,30 @@ function png(size, pixels) {
   ])
 }
 
+/** ICO con imágenes PNG incrustadas (compatible con Chrome, Edge y Safari). */
+function ico(images) {
+  const header = Buffer.alloc(6)
+  header.writeUInt16LE(0, 0)
+  header.writeUInt16LE(1, 2)
+  header.writeUInt16LE(images.length, 4)
+  let offset = 6 + 16 * images.length
+  const entries = []
+  const payloads = []
+  for (const { size, data } of images) {
+    const entry = Buffer.alloc(16)
+    entry[0] = size >= 256 ? 0 : size
+    entry[1] = size >= 256 ? 0 : size
+    entry.writeUInt16LE(1, 4)
+    entry.writeUInt16LE(32, 6)
+    entry.writeUInt32LE(data.length, 8)
+    entry.writeUInt32LE(offset, 12)
+    entries.push(entry)
+    payloads.push(data)
+    offset += data.length
+  }
+  return Buffer.concat([header, ...entries, ...payloads])
+}
+
 function mix(a, b, t) {
   return a.map((v, i) => Math.round(v + (b[i] - v) * t))
 }
@@ -109,3 +133,9 @@ for (const size of [192, 512]) {
   writeFileSync(new URL(`../public/icons/icon-${size}.png`, import.meta.url), makeIcon(size))
   console.log(`icon-${size}.png generado`)
 }
+
+writeFileSync(
+  new URL('../public/favicon.ico', import.meta.url),
+  ico([16, 32, 48].map((size) => ({ size, data: makeIcon(size) }))),
+)
+console.log('favicon.ico generado')
