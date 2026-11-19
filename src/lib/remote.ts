@@ -209,9 +209,11 @@ export type NewTenantRemote = {
 }
 
 export async function createTenantRemote(input: NewTenantRemote, logoUrl?: string): Promise<Tenant> {
-  const { data, error } = await requireSupabase()
+  const id = crypto.randomUUID()
+  const { error } = await requireSupabase()
     .from('tenants')
     .insert({
+      id,
       slug: input.slug,
       name: input.name,
       ruc: input.ruc || null,
@@ -221,9 +223,22 @@ export async function createTenantRemote(input: NewTenantRemote, logoUrl?: strin
       tax_rate: input.taxRate,
       logo: logoUrl ?? null,
     })
-    .select()
-    .single()
-  return toTenant(unwrap(data, error) as TenantRow)
+  // No usamos .select(): la política de SELECT depende de la membresía que crea
+  // el trigger AFTER INSERT, que todavía no es visible para el RETURNING.
+  if (error) throw new Error(error.message)
+  return {
+    id,
+    slug: input.slug,
+    name: input.name,
+    logo: logoUrl,
+    ruc: input.ruc,
+    phone: input.phone,
+    address: input.address,
+    currency: input.currency,
+    taxRate: input.taxRate,
+    requireLogin: false,
+    createdAt: Date.now(),
+  }
 }
 
 export async function updateTenantRemote(tenant: Tenant, logoUrl?: string): Promise<Tenant> {
