@@ -114,11 +114,9 @@ export function SessionModal({
         onToast={onToast}
       />
       <div className="divider" />
-      {session.kind === 'cashier' && (
-        <button className="btn btn-block" onClick={() => { onLogout(); onClose() }}>
-          <LogOut size={15} /> Cerrar sesión de cajero
-        </button>
-      )}
+      <button className="btn btn-block" onClick={() => { onLogout(); onClose() }}>
+        <LogOut size={15} /> {session.kind === 'cashier' ? 'Cerrar sesión de cajero' : 'Cerrar sesión'}
+      </button>
       <p className="file-hint" style={{ marginBottom: 0 }}>
         <UserRound size={12} style={{ verticalAlign: -2 }} /> Los cajeros se crean en Configuración → Mis cajeros.
       </p>

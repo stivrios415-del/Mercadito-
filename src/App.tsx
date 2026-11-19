@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
   BarChart3,
   LockKeyhole,
+  LogOut,
   Package,
   Plus,
   ReceiptText,
@@ -140,6 +141,26 @@ export default function App() {
   const navItems = isSuperAdmin
     ? [...NAV, { view: 'admin' as View, label: 'Admin', icon: ShieldCheck }]
     : NAV
+
+  /** Cierra la sesión de quien sea (dueño, cajero, PC o celular) y vuelve al ingreso. */
+  const logout = async () => {
+    setSessionOpen(false)
+    setSwitchOpen(false)
+    setCart([])
+    setView('ventas')
+    setSession({ kind: 'owner' })
+    if (supabaseConfigured) {
+      try {
+        await signOut()
+      } catch {
+        // Si falla la red, igual se limpia la sesión local.
+      }
+      setAuthUser(null)
+    }
+    // Al quitar el tenant (Supabase) o dejarlo null (local) aparece la pantalla
+    // de ingreso: AuthScreen con Supabase, selector de negocio en modo local.
+    setTenant(null)
+  }
 
   const downloadPdf = async (invoice: Invoice) => {
     if (!tenant) return
@@ -689,18 +710,13 @@ export default function App() {
           {supabaseConfigured
             ? <>Tus datos se sincronizan con Supabase. Abre <b>?t={tenant.slug}</b> en otro dispositivo e ingresa con tu cuenta.</>
             : <>Usa el enlace <b>?t={tenant.slug}</b> para abrir este negocio en otro dispositivo. Los datos se guardan en cada equipo.</>}
-          {supabaseConfigured && (
-            <button
-              className="btn btn-ghost btn-block"
-              style={{ marginTop: 10 }}
-              onClick={async () => {
-                await signOut()
-                setAuthUser(null)
-              }}
-            >
-              Cerrar sesión
-            </button>
-          )}
+          <button
+            className="btn btn-ghost btn-block"
+            style={{ marginTop: 10 }}
+            onClick={() => void logout()}
+          >
+            <LogOut size={15} /> Cerrar sesión
+          </button>
         </div>
       </aside>
 
@@ -730,6 +746,14 @@ export default function App() {
                 <small>{session.kind === 'owner' ? 'Modo administrador' : 'Cajero activo'}</small>
               </span>
             </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => void logout()}
+              title="Cerrar sesión y volver al ingreso"
+              aria-label="Cerrar sesión"
+            >
+              <LogOut size={16} /> <span className="logout-label">Salir</span>
+            </button>
           </div>
         </header>
 
@@ -753,15 +777,10 @@ export default function App() {
             onLogin={handleCashierLogin}
             onToast={notify}
             onOpenSettings={() => setView('configuracion')}
-            secondaryAction={supabaseConfigured
-              ? {
-                  label: 'Entrar como dueño',
-                  onClick: async () => {
-                    await signOut()
-                    setAuthUser(null)
-                  },
-                }
-              : undefined}
+            secondaryAction={{
+              label: supabaseConfigured ? 'Entrar como dueño' : 'Volver al ingreso',
+              onClick: () => void logout(),
+            }}
           />
         )}
 
@@ -888,14 +907,7 @@ export default function App() {
         <SessionModal
           session={session}
           onLogin={handleCashierLogin}
-          onLogout={async () => {
-            if (supabaseConfigured) {
-              await signOut()
-              setAuthUser(null)
-            } else {
-              setSession({ kind: 'owner' })
-            }
-          }}
+          onLogout={() => void logout()}
           onClose={() => setSessionOpen(false)}
           onToast={notify}
         />

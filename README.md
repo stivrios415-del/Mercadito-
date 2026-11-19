@@ -31,6 +31,7 @@ La PWA (service worker e instalación) se registra solo en producción y necesit
 5. **Factura:** descarga PDF A4, ticket 80 mm o imprime en térmica Bluetooth. También puedes reimprimir desde **Facturas**.
 6. **Reportes:** elige **Diario / Semanal / Mensual** y una fecha de referencia. Descarga el reporte en **PDF** o **Excel `.xlsx` real** (hojas Resumen, Productos y Análisis). El panel muestra inversión en inventario (`costo × stock`), costo de lo vendido, ganancia bruta, pérdidas por mermas y resultado neto.
 7. **Mermas:** en Reportes → *Registrar pérdida / merma* das de baja unidades por daño, vencimiento, robo u otro motivo; se descuenta el stock y se contabiliza el valor perdido.
+8. **Cerrar sesión:** el botón **Salir** de la barra superior (visible también en celular) y la opción *Cerrar sesión* del menú funcionan para **todos**: dueños y cajeros. Al salir se limpia el carrito y vuelve a la pantalla de ingreso (con Supabase, al login con correo y contraseña; en modo local, al selector de negocio para volver a entrar).
 
 ## Dueño del software (super-admin)
 
